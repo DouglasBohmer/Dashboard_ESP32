@@ -9,19 +9,26 @@ recebe o comando do dashboard para mover um microservo SG90.
 - DHT11: VCC em 3,3 V, GND em GND e DATA na GPIO 4.
 - Servo SG90: sinal na GPIO 18, VCC em 5 V e GND comum ao ESP32.
 
-### Alimentação pelo Arduino Uno
+### Alimentação pelo Arduino Uno e cabos macho-macho
 
 O Arduino Uno pode ser usado **somente como fonte de 5 V**. Não envie código ao
 Uno e não conecte pinos TX, RX ou digitais entre as duas placas.
 
-1. Alimente o Uno pela USB conectada ao computador ou a um carregador USB.
-2. Ligue o pino `5V` do Uno ao pino `VIN` do ESP32.
-3. Ligue um pino `GND` do Uno a um pino `GND` do ESP32.
+1. Encaixe o ESP32 na protoboard, atravessando o vão central; os dois conjuntos
+   de pinos devem ficar em blocos de contatos separados.
+2. Encaixe o DHT11 na protoboard. Com a grade azul voltada para você e os pinos
+   para baixo, a ordem é VCC, DATA, NC e GND, da esquerda para a direita.
+3. Alimente o Uno pela USB conectada ao computador ou a um carregador USB.
+4. Com um jumper macho-macho, ligue o pino `5V` do Uno ao trilho vermelho (+)
+   da protoboard.
+5. Com outro jumper macho-macho, ligue um `GND` do Uno ao trilho azul (-).
+6. Ligue o trilho vermelho ao pino `VIN` do ESP32 e o trilho azul a um `GND` do
+   ESP32, também usando jumpers macho-macho.
 
 ```text
 USB do computador ──> Arduino Uno
-                       5V  ───────> ESP32 VIN
-                       GND ───────> ESP32 GND
+                       5V  ──> trilho + ──> ESP32 VIN
+                       GND ──> trilho - ──> ESP32 GND
 ```
 
 Para fazer upload ou usar o monitor serial em `COM3`, **desconecte o fio entre
@@ -48,6 +55,17 @@ placa.
 No DHT11 sem placa adaptadora, adicione um resistor de **10 kΩ** entre os pinos
 1 (VCC) e 2 (DATA). Com a grade azul voltada para você e os pinos para baixo,
 a ordem é VCC, DATA, NC e GND, da esquerda para a direita.
+
+Como todos os pinos do ESP32 e do DHT11 ficam na protoboard, os jumpers
+macho-macho funcionam normalmente: uma ponta entra na fileira do componente e a
+outra na fileira do destino. Para o servo, encaixe uma ponta macho de cada jumper
+dentro de cada conector fêmea do servo e a outra ponta na protoboard:
+
+```text
+fileira do ESP32 D18 ── jumper macho-macho ── conector laranja/amarelo do servo
+trilho GND           ── jumper macho-macho ── conector marrom/preto do servo
+fonte 5 V externa    ── jumper macho-macho ── conector vermelho do servo
+```
 
 > Una o GND da fonte externa do servo ao GND do ESP32. Não alimente o servo
 > pelo pino de 3,3 V.
