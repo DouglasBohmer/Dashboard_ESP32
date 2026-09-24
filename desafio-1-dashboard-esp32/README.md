@@ -9,33 +9,23 @@ recebe o comando do dashboard para mover um microservo SG90.
 - DHT11: VCC em 3,3 V, GND em GND e DATA na GPIO 4.
 - Servo SG90: sinal na GPIO 18, VCC em 5 V e GND comum ao ESP32.
 
-### Alimentação pelo Arduino Uno e cabos macho-macho
+### Alimentação pelo USB do ESP32 (COM4)
 
-O Arduino Uno pode ser usado **somente como fonte de 5 V**. Não envie código ao
-Uno e não conecte pinos TX, RX ou digitais entre as duas placas.
+Nesta montagem, **somente o ESP32** fica conectado ao computador por USB. Esse
+cabo alimenta a placa e fornece a porta serial `COM4` para upload e monitor.
 
 1. Encaixe o ESP32 na protoboard, atravessando o vão central; os dois conjuntos
    de pinos devem ficar em blocos de contatos separados.
 2. Encaixe o DHT11 na protoboard. Com a grade azul voltada para você e os pinos
    para baixo, a ordem é VCC, DATA, NC e GND, da esquerda para a direita.
-3. Alimente o Uno pela USB conectada ao computador ou a um carregador USB.
-4. Com um jumper macho-macho, ligue o pino `5V` do Uno ao trilho vermelho (+)
-   da protoboard.
-5. Com outro jumper macho-macho, ligue um `GND` do Uno ao trilho azul (-).
-6. Ligue o trilho vermelho ao pino `VIN` do ESP32 e o trilho azul a um `GND` do
-   ESP32, também usando jumpers macho-macho.
+3. Conecte a USB somente no ESP32.
+4. Não alimente o Uno e não conecte `5V`, `VIN`, TX, RX ou pinos digitais do Uno
+   ao ESP32. A protoboard faz as ligações necessárias com os jumpers macho-macho.
 
-```text
-USB do computador ──> Arduino Uno
-                       5V  ──> trilho + ──> ESP32 VIN
-                       GND ──> trilho - ──> ESP32 GND
-```
-
-Para fazer upload ou usar o monitor serial em `COM3`, **desconecte o fio entre
-o 5V do Uno e o VIN do ESP32** e conecte somente a USB do próprio ESP32 ao
-computador. Não una duas fontes de 5 V ao ESP32 ao mesmo tempo. Depois do
-upload, retire a USB do ESP32 e restabeleça a alimentação pelo Uno para a
-execução independente.
+O Uno pode ficar na bancada apenas como suporte. Se for usado como ponte física
+de GND, conecte somente pinos marcados `GND`: um para o GND do ESP32 e outro
+para o GND do servo. É mais simples e equivalente usar diretamente o mesmo
+trilho negativo da protoboard.
 
 ### Ligações na protoboard
 
@@ -49,7 +39,7 @@ placa.
 | DHT11 | Pino 3 — NC | Não conectar |
 | DHT11 | Pino 4 — GND | `GND` |
 | Servo SG90 | Laranja/amarelo — sinal | `D18` / GPIO 18 |
-| Servo SG90 | Vermelho — positivo | Fonte externa de 5 V |
+| Servo SG90 | Vermelho — positivo | `VIN` do ESP32 para teste; fonte externa de 5 V para uso estável |
 | Servo SG90 | Marrom/preto — GND | `GND` |
 
 No DHT11 sem placa adaptadora, adicione um resistor de **10 kΩ** entre os pinos
@@ -64,15 +54,15 @@ dentro de cada conector fêmea do servo e a outra ponta na protoboard:
 ```text
 fileira do ESP32 D18 ── jumper macho-macho ── conector laranja/amarelo do servo
 trilho GND           ── jumper macho-macho ── conector marrom/preto do servo
-fonte 5 V externa    ── jumper macho-macho ── conector vermelho do servo
+fileira ESP32 VIN    ── jumper macho-macho ── conector vermelho do servo (teste)
 ```
 
-> Una o GND da fonte externa do servo ao GND do ESP32. Não alimente o servo
-> pelo pino de 3,3 V.
+> Para um teste breve e sem carga mecânica, o fio vermelho do servo pode usar o
+> `VIN` do ESP32, que recebe 5 V da USB. Se o ESP32 reiniciar ou desconectar,
+> pare o teste e passe o servo para uma fonte externa de 5 V. Nesse caso, una o
+> GND dessa fonte ao GND do ESP32. Nunca use o pino `3V3` para o servo.
 
-Para o primeiro teste, valide Wi-Fi e DHT11 antes de ligar o servo. O servo pode
-causar reinicialização se compartilhar o 5 V do Uno com o ESP32. Por isso, use
-uma fonte externa estabilizada de 5 V para o servo, mantendo o GND comum.
+Para o primeiro teste, valide Wi-Fi e DHT11 antes de ligar o servo.
 
 ## Configuração do Adafruit IO
 
@@ -94,7 +84,7 @@ para que o gráfico de linha seja exibido corretamente.
 
 ## Upload e monitor serial
 
-A porta configurada é `COM3` e o monitor opera em `115200` baud.
+A porta configurada é `COM4` e o monitor opera em `115200` baud.
 
 ```bash
 pio run -t upload
