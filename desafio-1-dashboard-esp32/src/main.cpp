@@ -7,164 +7,176 @@
 #include "secrets.h"
 
 constexpr uint8_t PINO_DHT = 4;
-constexpr uint8_t PINO_SERVO = 18;
+constexpr uint8_t PINO_SERVO = 19;
 constexpr uint8_t TIPO_DHT = DHT11;
-
-constexpr uint16_t ANGULO_DESLIGADO = 0;
-constexpr uint16_t ANGULO_LIGADO = 90;
-constexpr unsigned long INTERVALO_TELEMETRIA_MS = 15000;
-constexpr unsigned long INTERVALO_WIFI_MS = 10000;
-constexpr unsigned long INTERVALO_MQTT_MS = 5000;
-
-const char *BROKER_MQTT = "io.adafruit.com";
+constexpr uint8_t POSICAO_INICIAL = 0;
+constexpr uint8_t POSICAO_ATIVA = 90;
 constexpr uint16_t PORTA_MQTT = 1883;
+constexpr unsigned long INTERVALO_ENVIO = 15000;
+constexpr unsigned long INTERVALO_WIFI = 10000;
+constexpr unsigned long INTERVALO_MQTT = 5000;
 
-DHT dht(PINO_DHT, TIPO_DHT);
+const char SERVIDOR_MQTT[] = "io.adafruit.com";
+
+DHT sensor(PINO_DHT, TIPO_DHT);
 Servo servo;
-WiFiClient clienteWiFi;
-PubSubClient clienteMqtt(clienteWiFi);
+WiFiClient conexao;
+PubSubClient mqtt(conexao);
 
 char topicoTelemetria[96];
 char topicoAtuador[96];
-char idCliente[32];
-unsigned long proximaTelemetria = 0;
+char idDispositivo[32];
+
+unsigned long ultimoEnvio = 0;
 unsigned long ultimaTentativaWifi = 0;
 unsigned long ultimaTentativaMqtt = 0;
+bool wifiEstavaConectado = false;
 
-bool intervaloDecorrido(unsigned long agora, unsigned long ultimaTentativa,
-                        unsigned long intervalo) {
-  return agora - ultimaTentativa >= intervalo;
+bool tempoAtingido(unsigned long agora, unsigned long anterior,
+                   unsigned long intervalo) {
+  return agora - anterior >= intervalo;
 }
 
-void definirAtuador(bool ligado) {
-  servo.write(ligado ? ANGULO_LIGADO : ANGULO_DESLIGADO);
-  Serial.printf("Atuador: %s (%u graus)\n", ligado ? "LIGADO" : "DESLIGADO",
-                ligado ? ANGULO_LIGADO : ANGULO_DESLIGADO);
+void moverServo(uint8_t angulo) {
+  servo.write(angulo);
+  Serial.printf("Servo em %u graus\n", angulo);
 }
 
-bool comandoLiga(const String &comando) {
-  return comando == "1" || comando == "on" || comando == "liga" ||
-         comando == "ligado" || comando == "true";
-}
+String montarMensagem(const byte *dados, unsigned int tamanho) {
+  String mensagem;
+  mensagem.reserve(tamanho);
 
-bool comandoDesliga(const String &comando) {
-  return comando == "0" || comando == "off" || comando == "desliga" ||
-         comando == "desligado" || comando == "false";
-}
-
-void aoReceberComando(char *topico, byte *payload, unsigned int tamanho) {
-  String comando;
-  comando.reserve(tamanho);
-
-  for (unsigned int i = 0; i < tamanho; ++i) {
-    comando += static_cast<char>(payload[i]);
+  for (unsigned int indice = 0; indice < tamanho; ++indice) {
+    mensagem += static_cast<char>(dados[indice]);
   }
 
-  comando.trim();
-  comando.toLowerCase();
-  Serial.printf("Mensagem recebida em %s: %s\n", topico, comando.c_str());
+  mensagem.trim();
+  mensagem.toLowerCase();
+  return mensagem;
+}
 
-  if (comandoLiga(comando)) {
-    definirAtuador(true);
-  } else if (comandoDesliga(comando)) {
-    definirAtuador(false);
+void receberComando(char *topico, byte *dados, unsigned int tamanho) {
+  const String mensagem = montarMensagem(dados, tamanho);
+  Serial.printf("Comando em %s: %s\n", topico, mensagem.c_str());
+
+  if (mensagem == "1" || mensagem == "90" || mensagem == "on" ||
+      mensagem == "liga") {
+    moverServo(POSICAO_ATIVA);
+  } else if (mensagem == "0" || mensagem == "off" ||
+             mensagem == "desliga") {
+    moverServo(POSICAO_INICIAL);
   } else {
-    Serial.println("Comando ignorado. Use 1/0, ON/OFF ou LIGA/DESLIGA.");
+    Serial.println("Comando nao reconhecido");
   }
 }
 
-void conectarWifi(unsigned long agora) {
-  if (WiFi.status() == WL_CONNECTED ||
-      !intervaloDecorrido(agora, ultimaTentativaWifi, INTERVALO_WIFI_MS)) {
+void atualizarWifi(unsigned long agora) {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiEstavaConectado) {
+      wifiEstavaConectado = true;
+      Serial.printf("Wi-Fi conectado. IP: %s\n",
+                    WiFi.localIP().toString().c_str());
+    }
+    return;
+  }
+
+  wifiEstavaConectado = false;
+
+  if (!tempoAtingido(agora, ultimaTentativaWifi, INTERVALO_WIFI)) {
     return;
   }
 
   ultimaTentativaWifi = agora;
-  Serial.printf("Conectando ao Wi-Fi: %s\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
+  Serial.printf("Conectando ao Wi-Fi %s\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
-void conectarMqtt(unsigned long agora) {
-  if (WiFi.status() != WL_CONNECTED || clienteMqtt.connected() ||
-      !intervaloDecorrido(agora, ultimaTentativaMqtt, INTERVALO_MQTT_MS)) {
+void atualizarMqtt(unsigned long agora) {
+  if (WiFi.status() != WL_CONNECTED || mqtt.connected() ||
+      !tempoAtingido(agora, ultimaTentativaMqtt, INTERVALO_MQTT)) {
     return;
   }
 
   ultimaTentativaMqtt = agora;
-  Serial.print("Conectando ao MQTT... ");
 
-  if (clienteMqtt.connect(idCliente, AIO_USERNAME, AIO_KEY)) {
-    Serial.println("conectado.");
-    clienteMqtt.subscribe(topicoAtuador);
-    Serial.printf("Escutando: %s\n", topicoAtuador);
-  } else {
-    Serial.printf("falhou (codigo %d). Nova tentativa em 5 s.\n",
-                  clienteMqtt.state());
-  }
-}
-
-void publicarTelemetria() {
-  const float temperatura = dht.readTemperature();
-  const float umidade = dht.readHumidity();
-
-  if (isnan(temperatura) || isnan(umidade)) {
-    Serial.println("Falha ao ler o DHT11. Verifique alimentacao e fio de dados.");
+  if (!mqtt.connect(idDispositivo, AIO_USERNAME, AIO_KEY)) {
+    Serial.printf("Falha MQTT: %d\n", mqtt.state());
     return;
   }
 
-  Serial.printf("Temperatura: %.1f C | Umidade: %.1f %%\n", temperatura, umidade);
+  mqtt.subscribe(topicoAtuador);
+  Serial.println("Adafruit IO conectado");
+}
 
-  if (!clienteMqtt.connected()) {
-    Serial.println("Telemetria nao enviada: MQTT ainda desconectado.");
+void enviarLeitura(unsigned long agora) {
+  if (!tempoAtingido(agora, ultimoEnvio, INTERVALO_ENVIO)) {
+    return;
+  }
+
+  ultimoEnvio = agora;
+  const float temperatura = sensor.readTemperature();
+
+  if (isnan(temperatura)) {
+    Serial.println("Falha na leitura do DHT11");
+    return;
+  }
+
+  Serial.printf("Temperatura: %.1f C\n", temperatura);
+
+  if (!mqtt.connected()) {
+    Serial.println("MQTT desconectado");
     return;
   }
 
   char valor[12];
   snprintf(valor, sizeof(valor), "%.1f", temperatura);
 
-  if (clienteMqtt.publish(topicoTelemetria, valor)) {
-    Serial.printf("Telemetria enviada para %s: %s C\n", topicoTelemetria, valor);
+  if (mqtt.publish(topicoTelemetria, valor)) {
+    Serial.println("Telemetria enviada");
   } else {
-    Serial.println("Falha ao publicar a telemetria.");
+    Serial.println("Falha no envio da telemetria");
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(200);
-  Serial.println("\nDesafio 15-A: Dashboard IoT com ESP32");
+  pinMode(PINO_DHT, INPUT_PULLUP);
 
   snprintf(topicoTelemetria, sizeof(topicoTelemetria), "%s/feeds/telemetria",
            AIO_USERNAME);
-  snprintf(topicoAtuador, sizeof(topicoAtuador), "%s/feeds/atuador", AIO_USERNAME);
-  snprintf(idCliente, sizeof(idCliente), "esp32-%08llX",
+  snprintf(topicoAtuador, sizeof(topicoAtuador), "%s/feeds/atuador",
+           AIO_USERNAME);
+  snprintf(idDispositivo, sizeof(idDispositivo), "painel-%08llX",
            static_cast<unsigned long long>(ESP.getEfuseMac()));
 
-  dht.begin();
+  sensor.begin();
+  ESP32PWM::allocateTimer(0);
   servo.setPeriodHertz(50);
   servo.attach(PINO_SERVO, 500, 2400);
-  definirAtuador(false);
+  moverServo(POSICAO_INICIAL);
 
-  clienteMqtt.setServer(BROKER_MQTT, PORTA_MQTT);
-  clienteMqtt.setCallback(aoReceberComando);
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
+
+  mqtt.setServer(SERVIDOR_MQTT, PORTA_MQTT);
+  mqtt.setCallback(receberComando);
 
   const unsigned long agora = millis();
-  proximaTelemetria = agora + INTERVALO_TELEMETRIA_MS;
-  ultimaTentativaWifi = agora - INTERVALO_WIFI_MS;
-  ultimaTentativaMqtt = agora - INTERVALO_MQTT_MS;
-  conectarWifi(agora);
+  ultimaTentativaWifi = agora - INTERVALO_WIFI;
+  ultimaTentativaMqtt = agora - INTERVALO_MQTT;
+  atualizarWifi(agora);
 }
 
 void loop() {
   const unsigned long agora = millis();
 
-  conectarWifi(agora);
-  conectarMqtt(agora);
-  clienteMqtt.loop();
+  atualizarWifi(agora);
+  atualizarMqtt(agora);
 
-  if (static_cast<long>(agora - proximaTelemetria) >= 0) {
-    publicarTelemetria();
-    proximaTelemetria += INTERVALO_TELEMETRIA_MS;
+  if (mqtt.connected()) {
+    mqtt.loop();
   }
+
+  enviarLeitura(agora);
 }
